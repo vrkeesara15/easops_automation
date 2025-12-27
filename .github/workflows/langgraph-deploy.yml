@@ -48,5 +48,4 @@ jobs:
             --image gcr.io/annular-orb-465901-c1/langgraph:latest \
             --region us-central1 \
             --platform managed \
-            --allow-unauthenticated \
-            --set-env-vars OPENAI_API_KEY=${{ secrets.TF_VAR_openai_api_key }}
+            --allow-unauthenticated
