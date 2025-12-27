@@ -94,6 +94,35 @@ variable "langgraph_max_instances" {
   description = "Max instances for LangGraph Cloud Run service."
   default     = 2
 }
+
+variable "monitoring_notification_channels" {
+  type        = list(string)
+  description = "Monitoring notification channel IDs for alert policies."
+  default     = []
+}
+
+variable "billing_account_id" {
+  type        = string
+  description = "Billing account ID (e.g., 000000-000000-000000)."
+}
+
+variable "billing_monthly_budget" {
+  type        = number
+  description = "Monthly budget in USD."
+  default     = 300
+}
+
+variable "billing_alert_emails" {
+  type        = list(string)
+  description = "Email recipients for billing alerts."
+  default     = []
+}
+
+variable "billing_daily_anomaly_threshold" {
+  type        = number
+  description = "Daily spend threshold in USD for anomaly alerting."
+  default     = 50
+}
 variable "openai_api_key" {
   description = "OpenAI API key for LangGraph"
   type        = string
