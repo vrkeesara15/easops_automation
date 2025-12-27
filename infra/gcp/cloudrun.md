@@ -1,0 +1,1 @@
+gcloud run deploy n8n-langgraph   --source .   --region us-central1   --allow-unauthenticated
