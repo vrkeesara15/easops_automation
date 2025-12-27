@@ -1,0 +1,52 @@
+name: Deploy LangGraph to Cloud Run
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docker/langgraph/**"
+      - ".github/workflows/langgraph-deploy.yml"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: "${{ secrets.GCP_SA_KEY }}"
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: "${{ secrets.GCP_PROJECT_ID }}"
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/langgraph
+          push: true
+          platforms: linux/amd64
+          tags: gcr.io/annular-orb-465901-c1/langgraph:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy langgraph \
+            --image gcr.io/annular-orb-465901-c1/langgraph:latest \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars OPENAI_API_KEY=${{ secrets.TF_VAR_openai_api_key }}
