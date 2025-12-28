@@ -1,0 +1,397 @@
+{
+  "name": "LangGraph Agent - Reusable Template",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        200
+      ],
+      "notesInFlow": true,
+      "notes": "Run the workflow manually for quick validation or local testing. Update the defaults in the **Manual Defaults** node as needed."
+    },
+    {
+      "parameters": {
+        "path": "langgraph/agent-run",
+        "httpMethod": "POST",
+        "responseMode": "manual",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "binaryBody": false,
+          "binaryData": false
+        }
+      },
+      "id": "2",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        -40
+      ],
+      "notesInFlow": true,
+      "notes": "External systems can POST here to kick off agent runs. Expect a JSON body with agent_id, agent_version, input_payload, and metadata."
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "agent_id",
+              "value": "={{$env.AGENT_ID || 'replace-with-agent-id'}}"
+            },
+            {
+              "name": "agent_version",
+              "value": "={{$env.AGENT_VERSION || 'latest'}}"
+            },
+            {
+              "name": "source",
+              "value": "manual-trigger"
+            }
+          ],
+          "json": [
+            {
+              "name": "input_payload",
+              "value": "={{$env.AGENT_INPUT_PAYLOAD || {\"message\": \"Hello from n8n manual run\"}}}"
+            },
+            {
+              "name": "metadata",
+              "value": "={{$env.AGENT_METADATA || {\"context\": \"local-test\"}}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "Manual Defaults",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -1150,
+        200
+      ],
+      "notesInFlow": true,
+      "notes": "Seed data for manual executions. Values fall back to environment variables so the template is reusable across agents."
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "property": "input"
+      },
+      "id": "4",
+      "name": "Merge Inputs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        -910,
+        80
+      ],
+      "notesInFlow": true,
+      "notes": "Combines the manual and webhook triggers. whichever fires produces the payload used downstream."
+    },
+    {
+      "parameters": {
+        "functionCode": "const agentId = $json.agent_id || $json.body?.agent_id || $env.AGENT_ID || 'missing-agent-id';\nconst agentVersion = $json.agent_version || $json.body?.agent_version || $env.AGENT_VERSION || 'latest';\nconst runId = $json.run_id || $json.body?.run_id || uuid();\nconst inputPayload = $json.input_payload || $json.body?.input_payload || {};\nconst metadata = $json.metadata || $json.body?.metadata || { source: $json.source || 'n8n-template' };\nreturn [{\n  json: {\n    agent_id: agentId,\n    agent_version: agentVersion,\n    run_id: runId,\n    input_payload: inputPayload,\n    metadata: {\n      ...metadata,\n      trigger: $json.source || ($json.body ? 'webhook' : 'manual'),\n      execution_id: $execution.id\n    }\n  }\n}];"
+      },
+      "id": "5",
+      "name": "Prepare Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        80
+      ],
+      "notesInFlow": true,
+      "notes": "Normalize inputs and ensure every run has agent_id, agent_version, run_id (UUID), input_payload, and metadata."
+    },
+    {
+      "parameters": {
+        "url": "={{$env.AGENTS_BASE_URL}}/agents/{{$json.agent_id}}/run",
+        "options": {
+          "bodyContentType": "json"
+        },
+        "method": "POST",
+        "authentication": "none",
+        "sendBody": true,
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ {\n  agent_version: $json.agent_version,\n  run_id: $json.run_id,\n  input_payload: $json.input_payload,\n  metadata: $json.metadata\n} }}",
+        "headerParametersJson": "={\"Content-Type\": \"application/json\"}"
+      },
+      "id": "6",
+      "name": "Invoke Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        -410,
+        80
+      ],
+      "notesInFlow": true,
+      "notes": "Calls the LangGraph agent endpoint using environment-provided base URL."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.success}}"
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -170,
+        80
+      ],
+      "notesInFlow": true,
+      "notes": "Route based on the agent response. success === true continues; otherwise go to error handling."
+    },
+    {
+      "parameters": {
+        "functionCode": "console.log('LangGraph agent run', {\n  agent_id: $json.agent_id,\n  run_id: $json.run_id,\n  agent_version: $json.agent_version,\n  success: $json.success,\n  metadata: $json.metadata\n});\nreturn items;"
+      },
+      "id": "8",
+      "name": "Log Agent Run",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        70,
+        220
+      ],
+      "notesInFlow": true,
+      "notes": "Writes execution details to the n8n log for traceability."
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "artifact_note",
+              "value": "Attach upload/save logic here (e.g., S3, GCS)."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9",
+      "name": "Save Artifacts (Optional)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        330,
+        120
+      ],
+      "notesInFlow": true,
+      "notes": "Optional branch: persist agent outputs to file storage. Replace with your storage node." 
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "notification_note",
+              "value": "Send notifications here (Slack, Email, Teams, etc.)."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10",
+      "name": "Notify (Optional)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        330,
+        320
+      ],
+      "notesInFlow": true,
+      "notes": "Optional branch: alert stakeholders about the agent run results." 
+    },
+    {
+      "parameters": {
+        "responseBody": "={{$json}}",
+        "responseCode": 200,
+        "responseMode": "lastNode"
+      },
+      "id": "11",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        590,
+        220
+      ],
+      "notesInFlow": true,
+      "notes": "Sends the agent response back to the webhook caller when applicable." 
+    },
+    {
+      "parameters": {
+        "functionCode": "const errorMessage = $json.message || 'Agent execution failed';\nthrow new Error(errorMessage);"
+      },
+      "id": "12",
+      "name": "Handle Failure",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        70,
+        -100
+      ],
+      "notesInFlow": true,
+      "notes": "Raises an error when the agent signals success: false." 
+    },
+    {
+      "parameters": {
+        "responseBody": "={{ { error: $json.message || 'Agent failed' } }}",
+        "responseCode": 500,
+        "responseMode": "lastNode"
+      },
+      "id": "13",
+      "name": "Respond Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        330,
+        -100
+      ],
+      "notesInFlow": true,
+      "notes": "Returns an error payload to webhook callers for failed runs." 
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Manual Defaults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Manual Defaults": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Inputs": {
+      "main": [
+        [
+          {
+            "node": "Prepare Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Payload": {
+      "main": [
+        [
+          {
+            "node": "Invoke Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invoke Agent": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Handle Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Agent Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Failure": {
+      "main": [
+        [
+          {
+            "node": "Respond Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Run": {
+      "main": [
+        [
+          {
+            "node": "Save Artifacts (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "00000000-0000-0000-0000-000000000000",
+  "id": "1"
+}
