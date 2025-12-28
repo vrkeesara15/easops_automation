@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply min-h-screen bg-surface-light text-slate-900 antialiased transition-colors duration-300;
+}
+
+a {
+  @apply text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300;
+}
+
+.card-shadow {
+  box-shadow: 0 15px 45px rgba(15, 23, 42, 0.12);
+}
+
+input::placeholder {
+  @apply text-slate-400 dark:text-slate-500;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-300 dark:bg-slate-700;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
