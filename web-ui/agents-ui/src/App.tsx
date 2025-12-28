@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AgentCard } from './components/AgentCard';
 import { AgentDetails } from './components/AgentDetails';
 import { FiltersBar, allFilterValue } from './components/FiltersBar';
-import { fetchAgentsRegistry } from './lib/api';
+import { agentsApiBase, fetchAgentsRegistry } from './lib/api';
 import { AgentMetadata, CatalogFilters } from './lib/types';
 
 const defaultFilters: CatalogFilters = {
@@ -21,6 +21,7 @@ export default function App() {
   const [selected, setSelected] = useState<AgentMetadata | null>(null);
   const [filters, setFilters] = useState<CatalogFilters>(defaultFilters);
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
     window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   );
@@ -40,10 +41,12 @@ export default function App() {
       .then((data) => {
         setAgents(data);
         setStatus('idle');
+        setErrorMessage(null);
       })
       .catch((error) => {
         console.error(error);
         setStatus('error');
+        setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
       });
   }, []);
 
@@ -97,7 +100,19 @@ export default function App() {
 
         {status === 'error' && (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950/50 dark:text-red-100">
-            Unable to load agents. Check VITE_AGENTS_API_BASE_URL and try again.
+            <div className="font-semibold">Unable to load agents.</div>
+            <p className="mt-1 text-sm">
+              Attempted to fetch from
+              <span className="font-mono">
+                {' '}
+                {agentsApiBase ? `${agentsApiBase}/agents/registry` : '/agents/registry'}
+              </span>
+              . {errorMessage}
+            </p>
+            <p className="mt-2 text-sm">
+              Set <code className="font-mono">VITE_AGENTS_API_BASE_URL</code> during the build if the API is on a different host
+              than this UI.
+            </p>
           </div>
         )}
 
