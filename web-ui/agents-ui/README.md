@@ -25,9 +25,9 @@ npm install
 Create a `.env` file based on `.env.example`:
 ```bash
 cp .env.example .env
-# Edit VITE_AGENTS_API_BASE_URL to point at your API, e.g. https://agents.easops.com
+# Optionally set VITE_AGENTS_API_BASE_URL if the API is hosted on a different domain
 ```
-`VITE_AGENTS_API_BASE_URL` is prefixed to all requests. When omitted, the UI will call the backend on the same origin at `/agents/registry`.
+`VITE_AGENTS_API_BASE_URL` is prefixed to all requests. Leaving it blank will call the backend on the same origin at `/agents/registry`.
 
 ### Development
 ```bash
