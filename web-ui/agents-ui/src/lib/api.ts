@@ -6,11 +6,17 @@ export const agentsApiBase = baseUrl || '';
 
 export async function fetchAgentsRegistry(): Promise<AgentMetadata[]> {
   const endpoint = agentsApiBase ? `${agentsApiBase}/agents/registry` : '/agents/registry';
-  const response = await fetch(endpoint);
 
-  if (!response.ok) {
-    throw new Error(`Unable to fetch agents: ${response.status}`);
+  try {
+    const response = await fetch(endpoint);
+
+    if (!response.ok) {
+      throw new Error(`Request failed with status ${response.status} (${response.statusText || 'unknown'})`);
+    }
+
+    return response.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`Unable to fetch agents from ${endpoint}: ${message}`);
   }
-
-  return response.json();
 }
