@@ -23,7 +23,11 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
-AGENT_MODULE_PREFIX = "docker.langgraph.app.agents"
+# Resolve the top-level package dynamically so imports work regardless of where
+# the code lives on disk. When running inside the Docker image the package is
+# `app`, but the repository path is `docker/langgraph/app`. Deriving the prefix
+# from the current module keeps agent discovery stable in both contexts.
+AGENT_MODULE_PREFIX = f"{__name__.split('.')[0]}.agents"
 AGENT_ROOT = Path(__file__).resolve().parents[1] / "agents"
 
 
