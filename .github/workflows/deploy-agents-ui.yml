@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: web-ui/agents-ui
-        run: npm install
+        run: npm ci
 
       - name: Build UI
         working-directory: web-ui/agents-ui
