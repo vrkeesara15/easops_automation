@@ -1,108 +1,227 @@
-"""Agent discovery and registration utilities."""
+"""Agent discovery, manifest validation, and FastAPI registration utilities.
+
+This module introduces a manifest-driven agent registry so human and machine
+consumers can reliably discover available LangGraph agents without hard-coded
+imports. Agents are discovered dynamically from the filesystem using their
+manifest files and are resolved at runtime per request to guarantee the latest
+version is executed by default.
+"""
 
 from __future__ import annotations
 
 import importlib
-import importlib.util
+import json
 import logging
-import operator
-from dataclasses import dataclass, field
-from functools import reduce
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Optional, Type
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Type
 
 from fastapi import Body, FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from langgraph.graph import StateGraph
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
 AGENT_MODULE_PREFIX = "docker.langgraph.app.agents"
+AGENT_ROOT = Path(__file__).resolve().parents[1] / "agents"
+
+
+class AgentManifest(BaseModel):
+    """Schema for agent metadata shipped alongside each version."""
+
+    agent_id: str
+    version: str
+    name: str
+    category: str
+    description: str
+    when_to_use: str
+    inputs: Dict[str, str]
+    outputs: Dict[str, str]
+    owner: str
+    frequency: str
+    cost: str
 
 
 @dataclass
 class AgentDefinition:
-    """Structured metadata for an agent implementation."""
+    """Runtime bindings for an agent implementation."""
 
-    id: str
-    version: str
+    manifest: AgentManifest
     input_model: Type[BaseModel]
     output_model: Type[BaseModel]
     build_graph: Callable[[], StateGraph]
     prepare_state: Callable[[BaseModel], dict]
-    aliases: tuple[str, ...] = field(default_factory=tuple)
-
-
-@dataclass
-class AgentIndex:
-    """Container for agent definitions and version metadata."""
-
-    by_alias: Dict[str, Dict[str, AgentDefinition]] = field(default_factory=dict)
-    by_id: Dict[str, Dict[str, AgentDefinition]] = field(default_factory=dict)
-
-    def register(self, definition: AgentDefinition) -> None:
-        """Register a discovered agent definition for each alias and version."""
-
-        aliases = _collect_aliases(definition.id)
-        definition.aliases = aliases
-
-        for alias in aliases:
-            alias_versions = self.by_alias.setdefault(alias, {})
-            if definition.version in alias_versions:
-                logger.warning(
-                    "Duplicate agent alias '%s' with version '%s'; skipping",
-                    alias,
-                    definition.version,
-                )
-                continue
-            alias_versions[definition.version] = definition
-
-        id_versions = self.by_id.setdefault(definition.id, {})
-        if definition.version in id_versions:
-            logger.warning(
-                "Duplicate agent id '%s' with version '%s'; skipping",
-                definition.id,
-                definition.version,
-            )
-            return
-
-        id_versions[definition.version] = definition
-
-    def all_definitions(self) -> Iterable[AgentDefinition]:
-        for versions in self.by_id.values():
-            yield from versions.values()
-
-    def latest_by_alias(self) -> Dict[str, AgentDefinition]:
-        return {
-            alias: versions[select_latest_version(versions.keys())]
-            for alias, versions in self.by_alias.items()
-            if versions
-        }
-
-    def latest_by_id(self) -> Dict[str, AgentDefinition]:
-        return {
-            agent_id: versions[select_latest_version(versions.keys())]
-            for agent_id, versions in self.by_id.items()
-            if versions
-        }
+    module_path: str
 
 
 def _normalize_agent_id(agent_id: str) -> str:
     return agent_id.lower()
 
 
-def _collect_aliases(agent_id: str) -> tuple[str, ...]:
-    aliases = {_normalize_agent_id(agent_id)}
-    underscore = _normalize_agent_id(agent_id.replace("-", "_"))
-    aliases.add(underscore)
-    return tuple(sorted(aliases))
+def _aliases(agent_id: str) -> set[str]:
+    normalized = _normalize_agent_id(agent_id)
+    return {
+        normalized,
+        normalized.replace("-", "_"),
+        normalized.replace("_", "-"),
+    }
 
 
-def _build_response_model(agents: Iterable[AgentDefinition]) -> Optional[type]:
+def load_manifest(manifest_path: Path) -> AgentManifest:
+    """Load and validate a manifest.json file."""
+
+    if not manifest_path.exists():
+        raise ValueError(f"Manifest file missing at {manifest_path}")
+
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in manifest {manifest_path}: {exc}") from exc
+
+    try:
+        return AgentManifest(**payload)
+    except ValidationError as exc:
+        raise ValueError(f"Manifest validation failed for {manifest_path}: {exc}") from exc
+
+
+def _version_sort_key(version: str) -> tuple[int, Any]:
+    """Deterministic sort key that prefers semantic versions when available."""
+
+    value = version.lstrip("vV")
+    try:
+        from packaging.version import InvalidVersion, Version
+
+        try:
+            return (0, Version(value))
+        except InvalidVersion:
+            return (1, value)
+    except Exception:  # pragma: no cover - defensive fallback
+        logger.debug("packaging.version unavailable; falling back to string compare")
+        return (1, value)
+
+
+def resolve_latest_version(versions: Iterable[str]) -> str:
+    try:
+        return max(versions, key=_version_sort_key)
+    except ValueError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=404, detail="No versions available for agent") from exc
+
+
+def _load_agent_definition(module_path: str, manifest: AgentManifest) -> AgentDefinition:
+    """Import an agent module and align it with its manifest."""
+
+    try:
+        module = importlib.import_module(module_path)
+    except Exception as exc:  # pragma: no cover - startup safety
+        raise RuntimeError(f"Failed to import agent module '{module_path}': {exc}") from exc
+
+    missing = [
+        name
+        for name in (
+            "agent_id",
+            "agent_version",
+            "agent_input_model",
+            "agent_output_model",
+            "build_graph",
+            "prepare_state",
+        )
+        if not hasattr(module, name)
+    ]
+    if missing:
+        raise RuntimeError(
+            f"Agent module '{module_path}' is missing required attributes: {', '.join(missing)}"
+        )
+
+    agent_id = getattr(module, "agent_id")
+    agent_version = getattr(module, "agent_version")
+
+    if agent_id != manifest.agent_id:
+        raise RuntimeError(
+            f"Manifest agent_id '{manifest.agent_id}' does not match module '{agent_id}' for {module_path}"
+        )
+    if agent_version != manifest.version:
+        raise RuntimeError(
+            f"Manifest version '{manifest.version}' does not match module '{agent_version}' for {module_path}"
+        )
+
+    return AgentDefinition(
+        manifest=manifest,
+        input_model=getattr(module, "agent_input_model"),
+        output_model=getattr(module, "agent_output_model"),
+        build_graph=getattr(module, "build_graph"),
+        prepare_state=getattr(module, "prepare_state"),
+        module_path=module_path,
+    )
+
+
+def discover_agents(base_path: Path = AGENT_ROOT) -> Dict[str, Dict[str, AgentDefinition]]:
+    """Discover agents on disk by reading manifests and importing their modules."""
+
+    registry: Dict[str, Dict[str, AgentDefinition]] = {}
+    if not base_path.exists():
+        logger.warning("Agent base path does not exist: %s", base_path)
+        return registry
+
+    for agent_dir in sorted(p for p in base_path.iterdir() if p.is_dir()):
+        for version_dir in sorted(p for p in agent_dir.iterdir() if p.is_dir()):
+            manifest_path = version_dir / "manifest.json"
+            if not manifest_path.exists():
+                logger.warning(
+                    "Skipping agent at %s (missing manifest.json)", version_dir
+                )
+                continue
+
+            manifest = load_manifest(manifest_path)
+
+            agent_file = version_dir / "agent.py"
+            if not agent_file.exists():
+                raise RuntimeError(
+                    f"Agent manifest found at {manifest_path} but agent.py is missing"
+                )
+
+            module_path = ".".join(
+                [AGENT_MODULE_PREFIX, agent_dir.name, version_dir.name, "agent"]
+            )
+            definition = _load_agent_definition(module_path, manifest)
+
+            versions = registry.setdefault(manifest.agent_id, {})
+            if manifest.version in versions:
+                logger.warning(
+                    "Duplicate declaration for %s version %s; keeping first",
+                    manifest.agent_id,
+                    manifest.version,
+                )
+                continue
+            versions[manifest.version] = definition
+
+    return registry
+
+
+def _build_alias_registry(registry: Mapping[str, Dict[str, AgentDefinition]]) -> Dict[str, Dict[str, AgentDefinition]]:
+    alias_registry: Dict[str, Dict[str, AgentDefinition]] = {}
+    for agent_id, versions in registry.items():
+        for alias in _aliases(agent_id):
+            alias_registry[alias] = versions
+    return alias_registry
+
+
+def _resolve_versions(
+    registry: Mapping[str, Dict[str, AgentDefinition]], agent_id: str
+) -> Dict[str, AgentDefinition]:
+    alias = _normalize_agent_id(agent_id)
+    if alias in registry:
+        return registry[alias]
+
+    raise HTTPException(status_code=404, detail="Agent not found")
+
+
+def _build_response_model(registry: Mapping[str, Dict[str, AgentDefinition]]) -> Optional[type]:
     unique_models: list[type] = []
-    for agent in agents:
-        if agent.output_model not in unique_models:
-            unique_models.append(agent.output_model)
+    for versions in registry.values():
+        for definition in versions.values():
+            if definition.output_model not in unique_models:
+                unique_models.append(definition.output_model)
 
     if not unique_models:
         return None
@@ -110,162 +229,122 @@ def _build_response_model(agents: Iterable[AgentDefinition]) -> Optional[type]:
     if len(unique_models) == 1:
         return unique_models[0]
 
-    try:
-        return reduce(operator.or_, unique_models)  # type: ignore[return-value]
-    except TypeError:
-        # Fallback to no response model if unions cannot be composed dynamically.
+    merged: Optional[type] = None
+    for model in unique_models:
+        merged = model if merged is None else merged | model  # type: ignore[assignment]
+
+    if merged is None:
         logger.warning("Falling back to untyped response model for agents")
-        return None
+    return merged
 
 
-def _version_sort_key(version: str) -> tuple[int, Any]:
-    """Generate a deterministic sort key for semantic-ish versions."""
+def get_agent_metadata(registry: Mapping[str, Dict[str, AgentDefinition]]) -> list[dict[str, Any]]:
+    """Return machine-friendly metadata for every registered agent."""
 
-    spec = importlib.util.find_spec("packaging.version")
-    if spec is not None:
-        from packaging.version import InvalidVersion, Version
+    metadata: list[dict[str, Any]] = []
+    for agent_id, versions in sorted(registry.items()):
+        latest_version = resolve_latest_version(versions.keys())
+        latest_manifest = versions[latest_version].manifest
+        sorted_versions = sorted(versions.keys(), key=_version_sort_key, reverse=True)
 
-        try:
-            return (0, Version(version))
-        except InvalidVersion:
-            return (1, version)
-
-    return (1, version)
-
-
-def select_latest_version(versions: Iterable[str]) -> str:
-    """Pick the latest version from an iterable of version strings."""
-
-    try:
-        return max(versions, key=_version_sort_key)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="No versions available for agent") from exc
-
-
-def discover_agents(base_path: Path) -> AgentIndex:
-    """Discover agent modules and return indexed definitions by id and alias."""
-
-    index = AgentIndex()
-    if not base_path.exists():
-        logger.warning("Agent base path does not exist: %s", base_path)
-        return index
-
-    for agent_dir in sorted(base_path.iterdir()):
-        if not agent_dir.is_dir() or agent_dir.name.startswith("__"):
-            continue
-
-        unversioned_init = agent_dir / "__init__.py"
-        if unversioned_init.exists():
-            module_name = f"{AGENT_MODULE_PREFIX}.{agent_dir.name}"
-            definition = _load_agent_definition(module_name)
-            if definition:
-                index.register(definition)
-
-        for version_dir in sorted(agent_dir.iterdir()):
-            if not version_dir.is_dir() or version_dir.name.startswith("__"):
-                continue
-
-            init_file = version_dir / "__init__.py"
-            if not init_file.exists():
-                continue
-
-            module_name = f"{AGENT_MODULE_PREFIX}.{agent_dir.name}.{version_dir.name}"
-            definition = _load_agent_definition(module_name)
-            if definition:
-                index.register(definition)
-
-    return index
-
-
-def _load_agent_definition(module_name: str) -> Optional[AgentDefinition]:
-    try:
-        module = importlib.import_module(module_name)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("Failed to import agent module %s: %s", module_name, exc)
-        return None
-
-    try:
-        return AgentDefinition(
-            id=getattr(module, "agent_id"),
-            version=getattr(module, "agent_version"),
-            input_model=getattr(module, "agent_input_model"),
-            output_model=getattr(module, "agent_output_model"),
-            build_graph=getattr(module, "build_graph"),
-            prepare_state=getattr(module, "prepare_state"),
+        metadata.append(
+            {
+                "agent_id": latest_manifest.agent_id,
+                "name": latest_manifest.name,
+                "category": latest_manifest.category,
+                "description": latest_manifest.description,
+                "when_to_use": latest_manifest.when_to_use,
+                "inputs": latest_manifest.inputs,
+                "outputs": latest_manifest.outputs,
+                "owner": latest_manifest.owner,
+                "frequency": latest_manifest.frequency,
+                "cost": latest_manifest.cost,
+                "latest_version": latest_version,
+                "versions": sorted_versions,
+                "manifests": {
+                    version: definition.manifest.model_dump()
+                    for version, definition in versions.items()
+                },
+            }
         )
-    except AttributeError as exc:
-        logger.error("Skipping agent module %s due to missing attribute: %s", module_name, exc)
-        return None
+
+    return metadata
 
 
-def _resolve_version_map(index: AgentIndex, agent_id: str) -> Optional[Dict[str, AgentDefinition]]:
-    normalized = _normalize_agent_id(agent_id)
-    version_map = index.by_alias.get(normalized)
-    if version_map:
-        return version_map
+def _render_catalog_html(metadata: list[dict[str, Any]]) -> str:
+    by_category: Dict[str, list[dict[str, Any]]] = {}
+    for agent in metadata:
+        by_category.setdefault(agent["category"], []).append(agent)
 
-    underscore = _normalize_agent_id(agent_id.replace("-", "_"))
-    if underscore != normalized:
-        return index.by_alias.get(underscore)
+    parts = ["<html><head><title>Agent Catalog</title></head><body>"]
+    parts.append("<h1>Agent Catalog</h1>")
+    parts.append(
+        "<p>Use the POST /agents/{agent_id}/run endpoint to invoke agents. "
+        "When version is omitted, the latest version is executed.</p>"
+    )
 
-    return None
-
-
-def resolve_agent_version(
-    index: AgentIndex, agent_id: str, requested_version: Optional[str]
-) -> AgentDefinition:
-    """Resolve an agent definition for a given id and optional version."""
-
-    version_map = _resolve_version_map(index, agent_id)
-    if not version_map:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    if requested_version:
-        agent = version_map.get(requested_version)
-        if not agent:
-            available = ", ".join(
-                sorted(version_map.keys(), key=_version_sort_key, reverse=True)
+    for category, agents in sorted(by_category.items()):
+        parts.append(f"<h2>{category}</h2><ul>")
+        for agent in sorted(agents, key=lambda a: a["name"]):
+            parts.append("<li>")
+            parts.append(f"<h3>{agent['name']} ({agent['agent_id']})</h3>")
+            parts.append(f"<p><strong>Description:</strong> {agent['description']}</p>")
+            parts.append(f"<p><strong>When to use:</strong> {agent['when_to_use']}</p>")
+            parts.append(
+                f"<p><strong>Run endpoint:</strong> POST /agents/{agent['agent_id']}/run</p>"
             )
-            detail = (
-                f"Version '{requested_version}' not found for agent '{agent_id}'. "
-                f"Available versions: {available or 'none'}."
+            parts.append(
+                f"<p><strong>Available versions:</strong> {', '.join(agent['versions'])} (latest: {agent['latest_version']})</p>"
             )
-            raise HTTPException(status_code=404, detail=detail)
-        return agent
+            parts.append("<p><strong>Inputs:</strong></p><ul>")
+            for key, desc in agent["inputs"].items():
+                parts.append(f"<li><code>{key}</code>: {desc}</li>")
+            parts.append("</ul>")
+            parts.append("<p><strong>Outputs:</strong></p><ul>")
+            for key, desc in agent["outputs"].items():
+                parts.append(f"<li><code>{key}</code>: {desc}</li>")
+            parts.append("</ul>")
+            parts.append(
+                f"<p><strong>Owner:</strong> {agent['owner']} — <strong>Frequency:</strong> {agent['frequency']} — "
+                f"<strong>Cost:</strong> {agent['cost']}</p>"
+            )
+            parts.append("</li>")
+        parts.append("</ul>")
 
-    latest_version = select_latest_version(version_map.keys())
-    return version_map[latest_version]
+    parts.append("</body></html>")
+    return "\n".join(parts)
 
 
 def register_agents(app: FastAPI) -> None:
-    """Auto-discover agents and attach FastAPI routes."""
+    """Auto-discover agents, validate manifests, and attach FastAPI routes."""
 
-    base_path = Path(__file__).resolve().parents[1] / "agents"
-    index = discover_agents(base_path)
+    registry_by_id = discover_agents(AGENT_ROOT)
+    registry_by_alias = _build_alias_registry(registry_by_id)
 
-    latest_by_alias = index.latest_by_alias()
-    latest_by_id = index.latest_by_id()
-
-    response_model = _build_response_model(index.all_definitions())
+    response_model = _build_response_model(registry_by_id)
+    metadata = get_agent_metadata(registry_by_id)
 
     @app.get("/agents")
     def list_agents():
         return [
-            {"agent_id": agent_id, "version": definition.version}
-            for agent_id, definition in sorted(latest_by_id.items())
+            {"agent_id": item["agent_id"], "latest_version": item["latest_version"]}
+            for item in metadata
         ]
+
+    @app.get("/agents/registry")
+    def agent_registry():
+        return metadata
+
+    @app.get("/agents/catalog", response_class=HTMLResponse)
+    def agent_catalog():
+        return _render_catalog_html(metadata)
 
     @app.get("/agents/{agent_id}/versions")
     def list_agent_versions(agent_id: str):
-        version_map = _resolve_version_map(index, agent_id)
-        if not version_map:
-            raise HTTPException(status_code=404, detail="Agent not found")
-
-        sorted_versions = sorted(
-            version_map.keys(), key=_version_sort_key, reverse=True
-        )
-        latest_version = select_latest_version(version_map.keys())
-        canonical_id = next(iter(version_map.values())).id
+        versions = _resolve_versions(registry_by_alias, agent_id)
+        sorted_versions = sorted(versions.keys(), key=_version_sort_key, reverse=True)
+        latest_version = resolve_latest_version(versions.keys())
+        canonical_id = next(iter(versions.values())).manifest.agent_id
         return {
             "agent_id": canonical_id,
             "latest_version": latest_version,
@@ -276,24 +355,40 @@ def register_agents(app: FastAPI) -> None:
     async def run_agent(
         agent_id: str, payload: Dict[str, Any] = Body(...), version: Optional[str] = None
     ):
-        agent = resolve_agent_version(index, agent_id, version)
+        versions = _resolve_versions(registry_by_alias, agent_id)
+
+        if version:
+            if version not in versions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Version '{version}' not found for agent '{agent_id}'. "
+                        f"Available versions: {', '.join(sorted(versions.keys()))}."
+                    ),
+                )
+            definition = versions[version]
+        else:
+            latest_version = resolve_latest_version(versions.keys())
+            definition = versions[latest_version]
 
         try:
-            parsed_payload = agent.input_model(**payload)
+            parsed_payload = definition.input_model(**payload)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Invalid payload: {exc}") from exc
 
-        graph: StateGraph = agent.build_graph()
-        state = agent.prepare_state(parsed_payload)
+        graph: StateGraph = definition.build_graph()
+        state = definition.prepare_state(parsed_payload)
 
         try:
             result = graph.invoke(state)
         except Exception as exc:  # pragma: no cover - runtime safety
-            logger.exception("Agent '%s' failed during execution", agent.id)
+            logger.exception("Agent '%s' failed during execution", definition.manifest.agent_id)
             raise HTTPException(status_code=500, detail="Agent execution failed") from exc
 
-        return agent.output_model.model_validate(result)
+        if definition.output_model:
+            return definition.output_model.model_validate(result)
+        return result
 
-    app.state.agents = latest_by_alias
-    app.state.agent_catalog = latest_by_id
-    app.state.agent_versions = index.by_id
+    app.state.agent_registry = registry_by_id
+    app.state.agent_versions = registry_by_alias
+    app.state.agent_metadata = metadata

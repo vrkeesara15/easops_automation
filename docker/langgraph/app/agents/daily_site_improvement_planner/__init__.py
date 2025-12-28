@@ -1,19 +1,9 @@
-"""Daily Site Improvement Planner agent definition."""
+"""Daily Site Improvement Planner agent package.
 
-from .graph import build_graph, PlannerInput, PlannerOutput, prepare_state
+This module re-exports the latest agent version for compatibility with older
+import paths. New code should import specific versions explicitly.
+"""
 
-agent_id = "daily-site-improvement-planner"
-agent_version = "1.0.0"
-agent_input_model = PlannerInput
-agent_output_model = PlannerOutput
+from .v1.agent import *  # noqa: F401,F403
 
-__all__ = [
-    "build_graph",
-    "PlannerInput",
-    "PlannerOutput",
-    "prepare_state",
-    "agent_id",
-    "agent_version",
-    "agent_input_model",
-    "agent_output_model",
-]
+__all__ = [name for name in globals() if not name.startswith("_")]
