@@ -2,16 +2,14 @@ name: Deploy Agents UI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
       - 'web-ui/agents-ui/**'
 
 env:
   CLOUD_RUN_SERVICE: agents-ui
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GCP_REGION: ${{ secrets.GCP_REGION }}
-  VITE_AGENTS_API_BASE_URL: https://agents.easops.com
+  GCP_REGION: us-central1
   IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/agents-ui:${{ github.sha }}
 
 jobs:
@@ -21,53 +19,39 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: web-ui/agents-ui/package-lock.json
-
-      - name: Install dependencies
-        working-directory: web-ui/agents-ui
-        run: npm ci
 
       - name: Build UI
         working-directory: web-ui/agents-ui
-        run: npm run build
+        run: |
+          npm ci
+          npm run build
         env:
-          VITE_AGENTS_API_BASE_URL: ${{ env.VITE_AGENTS_API_BASE_URL }}
+          VITE_AGENTS_API_BASE_URL: https://agents.easops.com
 
-      - name: Authenticate to Google Cloud
+      - name: Auth GCP
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker authentication
-        run: gcloud auth configure-docker --quiet
-
-      - name: Build and push container image
+      - name: Deploy
         run: |
           gcloud builds submit web-ui/agents-ui \
             --tag $IMAGE \
             --project $GCP_PROJECT_ID
 
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy $CLOUD_RUN_SERVICE \
+          gcloud run deploy agents-ui \
             --image $IMAGE \
-            --region $GCP_REGION \
+            --region us-central1 \
             --project $GCP_PROJECT_ID \
             --platform managed \
             --allow-unauthenticated \
             --port 8080
-
-
