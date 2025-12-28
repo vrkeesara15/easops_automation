@@ -2,7 +2,7 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-ARG VITE_AGENTS_API_BASE_URL=https://agents.easops.com
+ARG VITE_AGENTS_API_BASE_URL
 ENV VITE_AGENTS_API_BASE_URL=${VITE_AGENTS_API_BASE_URL}
 
 COPY package*.json ./
