@@ -46,7 +46,9 @@ jobs:
         run: |
           gcloud builds submit web-ui/agents-ui \
             --tag $IMAGE \
-            --project $GCP_PROJECT_ID
+            --project $GCP_PROJECT_ID \
+            --async
+
 
           gcloud run deploy agents-ui \
             --image $IMAGE \
