@@ -1,0 +1,23 @@
+{
+  "agent_id": "daily-site-improvement-planner",
+  "version": "v1",
+  "name": "Daily Site Improvement Planner",
+  "category": "Content Ops",
+  "description": "Creates a focused plan of site improvements for the day based on metrics, backlog items, and constraints.",
+  "when_to_use": "Use each morning to turn site metrics and backlog items into a single actionable plan for the day.",
+  "inputs": {
+    "metrics": "GA4/Search Console summary for the site",
+    "backlog": "List of candidate ideas as strings or structured backlog items",
+    "constraints": "Execution constraints like available time, risk tolerance, and whether design or code is allowed"
+  },
+  "outputs": {
+    "selected_task": "Highest leverage task to deliver today",
+    "reason": "Why this task was selected",
+    "expected_impact": "Expected outcome after delivery",
+    "acceptance_criteria": "List of acceptance checks for completion",
+    "rollback_plan": "Steps to revert if the change underperforms"
+  },
+  "owner": "Product",
+  "frequency": "Daily",
+  "cost": "< $0.02 per run"
+}

@@ -1,0 +1,22 @@
+{
+  "agent_id": "seo-opportunity-miner",
+  "version": "v1",
+  "name": "SEO Opportunity Miner",
+  "category": "SEO",
+  "description": "Analyzes Search Console data to surface quick-win SEO opportunities and prioritize fixes.",
+  "when_to_use": "Use when you need fast recommendations to improve rankings and CTR using existing Search Console performance data.",
+  "inputs": {
+    "search_console_rows": "List of SearchConsoleRow records containing query, page, impressions, clicks, and position.",
+    "site_pages": "Optional list of known site URLs used to validate recommendations."
+  },
+  "outputs": {
+    "page_url": "URL of the prioritized page to improve",
+    "keyword": "Target keyword for the opportunity",
+    "issue_type": "Type of SEO issue detected (ctr, rank, or cannibalization)",
+    "recommended_fix": "Recommended actions to capture the opportunity",
+    "estimated_impact": "Expected outcome from applying the fix"
+  },
+  "owner": "Growth",
+  "frequency": "On-demand or daily checks depending on pipeline",
+  "cost": "< $0.05 per run"
+}
