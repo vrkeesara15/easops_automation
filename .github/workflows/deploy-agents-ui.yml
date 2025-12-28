@@ -1,0 +1,74 @@
+name: Deploy Agents UI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web-ui/agents-ui/**'
+
+env:
+  CLOUD_RUN_SERVICE: agents-ui
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ secrets.GCP_REGION }}
+  VITE_AGENTS_API_BASE_URL: https://agents.easops.com
+  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/agents-ui:${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-ui/agents-ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web-ui/agents-ui
+        run: npm install
+
+      - name: Build UI
+        working-directory: web-ui/agents-ui
+        run: npm run build
+        env:
+          VITE_AGENTS_API_BASE_URL: ${{ env.VITE_AGENTS_API_BASE_URL }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Configure Docker authentication
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build and push container image
+        run: |
+          gcloud builds submit web-ui/agents-ui \
+            --tag $IMAGE \
+            --project $GCP_PROJECT_ID \
+            --build-arg VITE_AGENTS_API_BASE_URL=${VITE_AGENTS_API_BASE_URL}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $CLOUD_RUN_SERVICE \
+            --image $IMAGE \
+            --region $GCP_REGION \
+            --project $GCP_PROJECT_ID \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080
