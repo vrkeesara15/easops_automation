@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { agentsApiBase } from '../lib/api';
+import { API_BASE_URL } from '../config/api';
 import { AgentMetadata } from '../lib/types';
 import { buildEndpointUrl, buildExamplePayload, buildN8nWebhook, formatList } from '../lib/utils';
 import { Badge } from './Badge';
@@ -13,8 +13,8 @@ export function AgentDetails({ agent, onClose }: AgentDetailsProps) {
   const [copyMessage, setCopyMessage] = useState('');
 
   const payload = useMemo(() => (agent ? buildExamplePayload(agent) : {}), [agent]);
-  const n8nWebhook = useMemo(() => (agent ? buildN8nWebhook(agent, agentsApiBase) : {}), [agent]);
-  const endpointUrl = useMemo(() => (agent ? buildEndpointUrl(agent, agentsApiBase) : ''), [agent]);
+  const n8nWebhook = useMemo(() => (agent ? buildN8nWebhook(agent, API_BASE_URL) : {}), [agent]);
+  const endpointUrl = useMemo(() => (agent ? buildEndpointUrl(agent, API_BASE_URL) : ''), [agent]);
 
   if (!agent) return null;
 
@@ -114,7 +114,7 @@ export function AgentDetails({ agent, onClose }: AgentDetailsProps) {
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">POST</span>
           </div>
           <code className="mt-2 block rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-100">
-            /agents/{agent.agent_id}/run?version={agent.latest_version}
+            {endpointUrl}
           </code>
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
             <span>Full URL:</span>

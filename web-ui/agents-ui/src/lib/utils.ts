@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '../config/api';
 import { AgentMetadata } from './types';
 
 export function buildExamplePayload(agent: AgentMetadata): Record<string, unknown> {
@@ -6,12 +7,12 @@ export function buildExamplePayload(agent: AgentMetadata): Record<string, unknow
   );
 }
 
-export function buildEndpointUrl(agent: AgentMetadata, baseUrl: string): string {
+export function buildEndpointUrl(agent: AgentMetadata, baseUrl: string = API_BASE_URL): string {
   const root = baseUrl ? baseUrl.replace(/\/$/, '') : '';
   return `${root}/agents/${agent.agent_id}/run?version=${agent.latest_version}`;
 }
 
-export function buildN8nWebhook(agent: AgentMetadata, baseUrl: string): Record<string, unknown> {
+export function buildN8nWebhook(agent: AgentMetadata, baseUrl: string = API_BASE_URL): Record<string, unknown> {
   return {
     method: 'POST',
     url: buildEndpointUrl(agent, baseUrl),

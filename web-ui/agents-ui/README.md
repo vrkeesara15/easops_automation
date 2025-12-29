@@ -25,9 +25,9 @@ npm install
 Create a `.env` file based on `.env.example`:
 ```bash
 cp .env.example .env
-# Optionally set VITE_AGENTS_API_BASE_URL if the API is hosted on a different domain
+# Set VITE_AGENTS_API_BASE_URL to the agents API origin (for example, https://agents.easops.com)
 ```
-`VITE_AGENTS_API_BASE_URL` is prefixed to all requests. Leaving it blank will call the backend on the same origin at `/agents/registry`.
+`VITE_AGENTS_API_BASE_URL` is prefixed to all requests. The UI will surface an error if it is missing so the API origin is always explicit.
 
 ### Development
 ```bash
@@ -46,7 +46,7 @@ The static site is emitted to `dist/`. You can preview the production bundle loc
 ### Cloud Run
 1. Build the static assets: `npm run build`.
 2. Serve the `dist/` directory with any static server (e.g., `gcr.io/distroless/nodejs` + `serve` or `nginx`).
-3. Containerize the static server and deploy to Cloud Run. Ensure `VITE_AGENTS_API_BASE_URL` is set in the environment if the API lives on a different host.
+3. Containerize the static server and deploy to Cloud Run. Ensure `VITE_AGENTS_API_BASE_URL` is set in the environment so the UI calls the correct API host.
 
 ### Cloud Storage + CDN
 1. Build the site with `npm run build`.
@@ -54,7 +54,7 @@ The static site is emitted to `dist/`. You can preview the production bundle loc
 3. Front it with a CDN or load balancer. No server-side rendering is required.
 
 ## How data is fetched
-The UI calls `GET /agents/registry` (prefixed by `VITE_AGENTS_API_BASE_URL` when provided) to load metadata for all agents. All filtering and search are performed client-side for fast interactions with 100+ agents.
+The UI calls `GET {VITE_AGENTS_API_BASE_URL}/agents/registry` to load metadata for all agents. All filtering and search are performed client-side for fast interactions with 100+ agents.
 
 ## Extending the catalog
 - Add new filters or sorting by extending the state in `src/App.tsx`.
