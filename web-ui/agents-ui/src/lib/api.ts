@@ -13,7 +13,7 @@ export async function fetchAgentsRegistry(): Promise<AgentMetadata[]> {
 
     return response.json();
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    throw new Error(`Unable to fetch agents from ${endpoint}: ${message}`);
+    console.error('Failed to fetch agents registry from', endpoint, error);
+    throw new Error('Unable to load agents. Check backend connectivity.');
   }
 }
