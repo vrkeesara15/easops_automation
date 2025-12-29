@@ -11,9 +11,17 @@ export async function fetchAgentsRegistry(): Promise<AgentMetadata[]> {
       throw new Error(`Request failed with status ${response.status} (${response.statusText || 'unknown'})`);
     }
 
-    return response.json();
+    const data = await response.json();
+
+    const agents = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.agents)
+        ? data.agents
+        : [];
+
+    return agents as AgentMetadata[];
   } catch (error) {
     console.error('Failed to fetch agents registry from', endpoint, error);
-    throw new Error('Unable to load agents. Check backend connectivity.');
+    throw new Error('Failed to fetch agents registry.');
   }
 }
