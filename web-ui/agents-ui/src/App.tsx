@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { AgentCard } from './components/AgentCard';
 import { AgentDetails } from './components/AgentDetails';
 import { FiltersBar, allFilterValue } from './components/FiltersBar';
-import { agentsApiBase, fetchAgentsRegistry } from './lib/api';
+import { API_BASE_URL } from './config/api';
+import { fetchAgentsRegistry } from './lib/api';
 import { AgentMetadata, CatalogFilters } from './lib/types';
 
 const defaultFilters: CatalogFilters = {
@@ -105,7 +106,7 @@ export default function App() {
               Attempted to fetch from
               <span className="font-mono">
                 {' '}
-                {agentsApiBase ? `${agentsApiBase}/agents/registry` : '/agents/registry'}
+                {`${API_BASE_URL}/agents/registry`}
               </span>
               . {errorMessage}
             </p>
