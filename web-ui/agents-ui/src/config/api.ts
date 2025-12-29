@@ -1,10 +1,11 @@
-const rawApiBaseUrl = (import.meta.env.VITE_AGENTS_API_BASE_URL || '').replace(/\/$/, '');
+const rawApiBaseUrl = (import.meta.env?.VITE_AGENTS_API_BASE_URL || '').toString().trim();
 
 if (!rawApiBaseUrl) {
-  const message =
-    'VITE_AGENTS_API_BASE_URL is not set. Provide it in your environment before building (e.g. VITE_AGENTS_API_BASE_URL=https://agents.easops.com).';
-  console.error(message);
-  throw new Error(message);
+  console.warn(
+    'VITE_AGENTS_API_BASE_URL is not set. Falling back to https://agents.easops.com. Set the env var to point to your API if needed.'
+  );
 }
 
-export const API_BASE_URL = rawApiBaseUrl;
+const normalizedBaseUrl = (rawApiBaseUrl || 'https://agents.easops.com').replace(/\/$/, '');
+
+export const API_BASE_URL = normalizedBaseUrl;

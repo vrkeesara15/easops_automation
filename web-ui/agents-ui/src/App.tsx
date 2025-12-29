@@ -45,9 +45,9 @@ export default function App() {
         setErrorMessage(null);
       })
       .catch((error) => {
-        console.error(error);
+        console.error('Unable to load agents.', error);
         setStatus('error');
-        setErrorMessage(error instanceof Error ? error.message : 'Unknown error');
+        setErrorMessage('Unable to load agents. Check backend connectivity.');
       });
   }, []);
 
@@ -103,12 +103,15 @@ export default function App() {
           <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950/50 dark:text-red-100">
             <div className="font-semibold">Unable to load agents.</div>
             <p className="mt-1 text-sm">
+              {errorMessage}
+            </p>
+            <p className="mt-1 text-sm">
               Attempted to fetch from
               <span className="font-mono">
                 {' '}
                 {`${API_BASE_URL}/agents/registry`}
               </span>
-              . {errorMessage}
+              .
             </p>
             <p className="mt-2 text-sm">
               Set <code className="font-mono">VITE_AGENTS_API_BASE_URL</code> during the build if the API is on a different host
